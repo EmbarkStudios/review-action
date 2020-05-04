@@ -1,0 +1,20 @@
+name: "PR review labeler"
+description: "Adds or removes labels based on the review state of a PR"
+author: "Embark Studios"
+inputs:
+  waitingForReview:
+    description: "Comma separated list of labels to apply when the PR is waiting for review"
+    required: true
+  readyForMerge:
+    description: "Comma separated list of labels to apply when all reviews have been approved"
+    required: true
+  requireDescription:
+    description: "Won't add readyForMerge labels if the PR does not have a description"
+    default: "true"
+    required: false
+  waitingForAuthor:
+    description: "When `requireDescription` is true, and PR is otherwise ready to merge these labels will be used"
+    required: false
+runs:
+  using: "node12"
+  main: "dist/index.js"
