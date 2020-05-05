@@ -58,6 +58,8 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
 
             const author_id: number = pr.user.id;
 
+            core.debug(`PR author id is ${author_id}`);
+
             // If any of the reviews are not APPROVED, we mark the PR as still
             // waiting on reviews
             if (reviews.data.length > 0) {
@@ -71,6 +73,7 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
 
                     // Ignore review comments from the author
                     if (review.user.id === author_id) {
+                        core.debug(`Skipping ${review.state} of PR author`);
                         continue;
                     }
 
