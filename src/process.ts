@@ -56,7 +56,9 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
                 pull_number: pr.number,
             });
 
-            // If any of the reviews are REQUEST_CHANGES, we mark the PR as still
+            const author_id = pr.user.id;
+
+            // If any of the reviews are not APPROVED, we mark the PR as still
             // waiting on reviews
             if (reviews.data.length > 0) {
                 // The set of reviews will contain ALL of the reviews, including old ones that have been supplanted
@@ -66,6 +68,11 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
 
                 for (const review of reviews.data) {
                     const timestamp = Date.parse(review.submitted_at);
+
+                    // Ignore review comments from the author
+                    if (review.user.id === author_id) {
+                        continue;
+                    }
 
                     const ind = reviewers.findIndex((item) => item.reviewer == review.user.id);
 
