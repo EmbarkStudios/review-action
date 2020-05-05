@@ -56,7 +56,7 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
                 pull_number: pr.number,
             });
 
-            const author_id = pr.user.id;
+            const author_id: number = pr.user.id;
 
             // If any of the reviews are not APPROVED, we mark the PR as still
             // waiting on reviews
@@ -74,7 +74,7 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
                         continue;
                     }
 
-                    const ind = reviewers.findIndex((item) => item.reviewer == review.user.id);
+                    const ind = reviewers.findIndex((item) => item.reviewer === review.user.id);
 
                     if (ind == -1) {
                         reviewers.push({ reviewer: review.user.id, state: review.state, timestamp });
