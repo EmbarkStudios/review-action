@@ -26,8 +26,6 @@ export async function sync_labels(octokit: Octokit, pr: PullRequest, to_remove: 
     var labels: string[] = [];
     var changed = false;
     for (const label of pr.labels) {
-        core.debug(`LABEL NAME IS ${label.name}`);
-
         if (!to_remove.includes(label.name)) {
             labels.push(label.name);
         } else {

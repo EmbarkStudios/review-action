@@ -43,6 +43,11 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
         }
     }
 
+    if (pr.draft === true) {
+        core.debug(`Ignoring draft PR`);
+        return { todo: Todo.WaitingOnAuthor, pull_request: pr };
+    }
+
     if (!todo) {
         if (pr.requested_reviewers.length > 0) {
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);

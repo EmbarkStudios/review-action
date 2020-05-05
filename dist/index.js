@@ -707,6 +707,10 @@ function process_event(ctx, octo, requires_description) {
                 break;
             }
         }
+        if (pr.draft === true) {
+            core.debug(`Ignoring draft PR`);
+            return { todo: Todo.WaitingOnAuthor, pull_request: pr };
+        }
         if (!todo) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
@@ -4475,7 +4479,6 @@ function sync_labels(octokit, pr, to_remove, to_add) {
         var labels = [];
         var changed = false;
         for (const label of pr.labels) {
-            core.debug(`LABEL NAME IS ${label.name}`);
             if (!to_remove.includes(label.name)) {
                 labels.push(label.name);
             }
