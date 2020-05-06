@@ -4553,8 +4553,8 @@ function sync_labels(octokit, pr, to_remove, to_add) {
             }
         }
         for (const add of to_add) {
-            if (!labels.includes(add)) {
-                labels.push(add);
+            if (!triage_labels.includes(add)) {
+                triage_labels.push(add);
                 changed = true;
             }
         }

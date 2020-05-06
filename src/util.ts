@@ -42,8 +42,8 @@ export async function sync_labels(octokit: Octokit, pr: PullRequest, to_remove: 
     }
 
     for (const add of to_add) {
-        if (!labels.includes(add)) {
-            labels.push(add);
+        if (!triage_labels.includes(add)) {
+            triage_labels.push(add);
             changed = true;
         }
     }
