@@ -44,7 +44,6 @@ export async function process_event(
     }
 
     var todo = undefined;
-    var ci_status = undefined;
     var check_reviews = true;
 
     switch (ctx.eventName) {
@@ -61,38 +60,9 @@ export async function process_event(
             }
             break;
         }
-        // Buildkite doesn't currently use the check_run APIs
-        case "status": {
-            const statuses = await octo.repos.getCombinedStatusForRef({
-                owner: pr.base.repo.owner.login,
-                repo: pr.base.repo.name,
-                ref: pr.head.sha,
-            });
-
-            switch (statuses.data.state) {
-                case "failure": {
-                    ci_status = CIStatus.Failure;
-                    break;
-                }
-                case "pending": {
-                    ci_status = CIStatus.Pending;
-                    break;
-                }
-                case "success": {
-                    ci_status = CIStatus.Success;
-                    break;
-                }
-                default: {
-                    core.debug(`unknown status state ${statuses.data.state} encountered`);
-                    break;
-                }
-            }
-            break;
-        }
-        default: {
-            break;
-        }
     }
+
+    const ci_status = await get_ci_status(octo, pr);
 
     if (check_reviews) {
         if (pr.requested_reviewers.length > 0) {
@@ -161,4 +131,35 @@ export async function process_event(
     }
 
     return { todo, ci_status, pull_request: pr };
+}
+
+async function get_ci_status(octo: Octokit, pr: PullRequest): Promise<CIStatus | undefined> {
+    const statuses = await octo.repos.getCombinedStatusForRef({
+        owner: pr.base.repo.owner.login,
+        repo: pr.base.repo.name,
+        ref: pr.head.sha,
+    });
+
+    var ci_status = undefined;
+
+    switch (statuses.data.state) {
+        case "failure": {
+            ci_status = CIStatus.Failure;
+            break;
+        }
+        case "pending": {
+            ci_status = CIStatus.Pending;
+            break;
+        }
+        case "success": {
+            ci_status = CIStatus.Success;
+            break;
+        }
+        default: {
+            core.debug(`unknown status state ${statuses.data.state} encountered`);
+            break;
+        }
+    }
+
+    return ci_status;
 }

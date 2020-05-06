@@ -704,7 +704,6 @@ function process_event(ctx, octo, requires_description) {
             };
         }
         var todo = undefined;
-        var ci_status = undefined;
         var check_reviews = true;
         switch (ctx.eventName) {
             case "pull_request_review": {
@@ -720,37 +719,8 @@ function process_event(ctx, octo, requires_description) {
                 }
                 break;
             }
-            // Buildkite doesn't currently use the check_run APIs
-            case "status": {
-                const statuses = yield octo.repos.getCombinedStatusForRef({
-                    owner: pr.base.repo.owner.login,
-                    repo: pr.base.repo.name,
-                    ref: pr.head.sha,
-                });
-                switch (statuses.data.state) {
-                    case "failure": {
-                        ci_status = CIStatus.Failure;
-                        break;
-                    }
-                    case "pending": {
-                        ci_status = CIStatus.Pending;
-                        break;
-                    }
-                    case "success": {
-                        ci_status = CIStatus.Success;
-                        break;
-                    }
-                    default: {
-                        core.debug(`unknown status state ${statuses.data.state} encountered`);
-                        break;
-                    }
-                }
-                break;
-            }
-            default: {
-                break;
-            }
         }
+        const ci_status = yield get_ci_status(octo, pr);
         if (check_reviews) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
@@ -815,6 +785,35 @@ function process_event(ctx, octo, requires_description) {
     });
 }
 exports.process_event = process_event;
+function get_ci_status(octo, pr) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const statuses = yield octo.repos.getCombinedStatusForRef({
+            owner: pr.base.repo.owner.login,
+            repo: pr.base.repo.name,
+            ref: pr.head.sha,
+        });
+        var ci_status = undefined;
+        switch (statuses.data.state) {
+            case "failure": {
+                ci_status = CIStatus.Failure;
+                break;
+            }
+            case "pending": {
+                ci_status = CIStatus.Pending;
+                break;
+            }
+            case "success": {
+                ci_status = CIStatus.Success;
+                break;
+            }
+            default: {
+                core.debug(`unknown status state ${statuses.data.state} encountered`);
+                break;
+            }
+        }
+        return ci_status;
+    });
+}
 
 
 /***/ }),
