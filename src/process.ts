@@ -6,24 +6,46 @@ import { Octokit } from '@octokit/rest';
 export enum Todo {
     WaitingOnReview,
     WaitingOnAuthor,
+    WaitingOnDescription,
     ReadyForMerge,
 }
 
+export enum CIStatus {
+    Pending,
+    Failure,
+    Success,
+}
+
 interface Processed {
-    todo: Todo;
+    todo?: Todo;
+    ci_status?: CIStatus;
     pull_request: PullRequest;
 }
 
-export async function process_event(ctx: Context, octo: Octokit, requires_description: boolean): Promise<Processed> {
+export async function process_event(
+    ctx: Context,
+    octo: Octokit,
+    requires_description: boolean,
+): Promise<Processed> {
     const pr = ctx.payload.pull_request;
 
-    if (pr == null) {
+    if (!pr) {
         throw new Error('we should have a pull request object!');
     }
 
-    var todo = null;
-
     core.debug(`${ctx.eventName} of type '${ctx.action}' received`);
+
+    if (pr.draft === true) {
+        core.info(`Ignoring draft PR`);
+        return {
+            todo: Todo.WaitingOnAuthor,
+            pull_request: pr
+        };
+    }
+
+    var todo = undefined;
+    var ci_status = undefined;
+    var check_reviews = true;
 
     switch (ctx.eventName) {
         case "pull_request_review": {
@@ -33,6 +55,35 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
             switch (ctx.action) {
                 case "ready_for_review": {
                     todo = Todo.WaitingOnReview;
+                    check_reviews = false;
+                    break;
+                }
+            }
+            break;
+        }
+        // Buildkite doesn't currently use the check_run APIs
+        case "status": {
+            const statuses = await octo.repos.getCombinedStatusForRef({
+                owner: pr.base.repo.owner.login,
+                repo: pr.base.repo.name,
+                ref: pr.head.sha,
+            });
+
+            switch (statuses.data.state) {
+                case "failure": {
+                    ci_status = CIStatus.Failure;
+                    break;
+                }
+                case "pending": {
+                    ci_status = CIStatus.Pending;
+                    break;
+                }
+                case "success": {
+                    ci_status = CIStatus.Success;
+                    break;
+                }
+                default: {
+                    core.debug(`unknown status state ${statuses.data.state} encountered`);
                     break;
                 }
             }
@@ -43,12 +94,7 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
         }
     }
 
-    if (pr.draft === true) {
-        core.debug(`Ignoring draft PR`);
-        return { todo: Todo.WaitingOnAuthor, pull_request: pr };
-    }
-
-    if (!todo) {
+    if (check_reviews) {
         if (pr.requested_reviewers.length > 0) {
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
             todo = Todo.WaitingOnReview;
@@ -110,9 +156,9 @@ export async function process_event(ctx: Context, octo: Octokit, requires_descri
     if (todo == Todo.ReadyForMerge && requires_description) {
         if (!pr.body) {
             core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
-            todo = Todo.WaitingOnAuthor;
+            todo = Todo.WaitingOnDescription;
         }
     }
 
-    return { todo, pull_request: pr };
+    return { todo, ci_status, pull_request: pr };
 }

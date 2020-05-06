@@ -680,16 +680,32 @@ var Todo;
 (function (Todo) {
     Todo[Todo["WaitingOnReview"] = 0] = "WaitingOnReview";
     Todo[Todo["WaitingOnAuthor"] = 1] = "WaitingOnAuthor";
-    Todo[Todo["ReadyForMerge"] = 2] = "ReadyForMerge";
+    Todo[Todo["WaitingOnDescription"] = 2] = "WaitingOnDescription";
+    Todo[Todo["ReadyForMerge"] = 3] = "ReadyForMerge";
 })(Todo = exports.Todo || (exports.Todo = {}));
+var CIStatus;
+(function (CIStatus) {
+    CIStatus[CIStatus["Pending"] = 0] = "Pending";
+    CIStatus[CIStatus["Failure"] = 1] = "Failure";
+    CIStatus[CIStatus["Success"] = 2] = "Success";
+})(CIStatus = exports.CIStatus || (exports.CIStatus = {}));
 function process_event(ctx, octo, requires_description) {
     return __awaiter(this, void 0, void 0, function* () {
         const pr = ctx.payload.pull_request;
-        if (pr == null) {
+        if (!pr) {
             throw new Error('we should have a pull request object!');
         }
-        var todo = null;
         core.debug(`${ctx.eventName} of type '${ctx.action}' received`);
+        if (pr.draft === true) {
+            core.info(`Ignoring draft PR`);
+            return {
+                todo: Todo.WaitingOnAuthor,
+                pull_request: pr
+            };
+        }
+        var todo = undefined;
+        var ci_status = undefined;
+        var check_reviews = true;
         switch (ctx.eventName) {
             case "pull_request_review": {
                 break;
@@ -698,6 +714,34 @@ function process_event(ctx, octo, requires_description) {
                 switch (ctx.action) {
                     case "ready_for_review": {
                         todo = Todo.WaitingOnReview;
+                        check_reviews = false;
+                        break;
+                    }
+                }
+                break;
+            }
+            // Buildkite doesn't currently use the check_run APIs
+            case "status": {
+                const statuses = yield octo.repos.getCombinedStatusForRef({
+                    owner: pr.base.repo.owner.login,
+                    repo: pr.base.repo.name,
+                    ref: pr.head.sha,
+                });
+                switch (statuses.data.state) {
+                    case "failure": {
+                        ci_status = CIStatus.Failure;
+                        break;
+                    }
+                    case "pending": {
+                        ci_status = CIStatus.Pending;
+                        break;
+                    }
+                    case "success": {
+                        ci_status = CIStatus.Success;
+                        break;
+                    }
+                    default: {
+                        core.debug(`unknown status state ${statuses.data.state} encountered`);
                         break;
                     }
                 }
@@ -707,11 +751,7 @@ function process_event(ctx, octo, requires_description) {
                 break;
             }
         }
-        if (pr.draft === true) {
-            core.debug(`Ignoring draft PR`);
-            return { todo: Todo.WaitingOnAuthor, pull_request: pr };
-        }
-        if (!todo) {
+        if (check_reviews) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
                 todo = Todo.WaitingOnReview;
@@ -768,10 +808,10 @@ function process_event(ctx, octo, requires_description) {
         if (todo == Todo.ReadyForMerge && requires_description) {
             if (!pr.body) {
                 core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
-                todo = Todo.WaitingOnAuthor;
+                todo = Todo.WaitingOnDescription;
             }
         }
-        return { todo, pull_request: pr };
+        return { todo, ci_status, pull_request: pr };
     });
 }
 exports.process_event = process_event;
@@ -1865,6 +1905,7 @@ function run() {
             const ready_for_merge_labels = core.getInput('readyForMerge').split(',');
             const waiting_for_author_labels = core.getInput('waitingForAuthor').split(',');
             const requires_description = util_1.to_bool(core.getInput('requireDescription'));
+            const ci_passed_labels = core.getInput('ciPassed').split(',');
             const token = core.getInput("GITHUB_TOKEN");
             const octokit = new rest_1.Octokit({
                 auth: `token ${token}`,
@@ -1884,14 +1925,32 @@ function run() {
                     to_add = waiting_for_review_labels;
                     break;
                 }
-                case process_1.Todo.WaitingOnAuthor: {
+                case process_1.Todo.WaitingOnAuthor:
+                case process_1.Todo.WaitingOnDescription: {
                     to_remove = ready_for_merge_labels.concat(waiting_for_review_labels);
                     to_add = waiting_for_author_labels;
                     break;
                 }
+                default: {
+                    to_remove = [];
+                    to_add = [];
+                    break;
+                }
+            }
+            switch (processed.ci_status) {
+                case process_1.CIStatus.Success: {
+                    to_add.concat(ci_passed_labels);
+                    break;
+                }
+                case process_1.CIStatus.Pending:
+                case process_1.CIStatus.Failure:
+                default: {
+                    to_remove.concat(ci_passed_labels);
+                    break;
+                }
             }
             yield util_1.sync_labels(octokit, processed.pull_request, to_remove, to_add);
-            if (processed.todo == process_1.Todo.WaitingOnAuthor) {
+            if (processed.todo == process_1.Todo.WaitingOnDescription) {
                 throw new Error();
             }
         }

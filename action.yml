@@ -12,8 +12,11 @@ inputs:
     description: "Won't add readyForMerge labels if the PR does not have a description"
     default: "true"
     required: false
+  ciPassed:
+    description: "Comma separated list of labels to apply when CI has passed"
+    required: true
   waitingForAuthor:
-    description: "When `requireDescription` is true, and PR is otherwise ready to merge these labels will be used"
+    description: "When `requireDescription` is true, and PR is otherwise ready to merge, or the PR is a draft, these labels will be used"
     required: false
 runs:
   using: "node12"
