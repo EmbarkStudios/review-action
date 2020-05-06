@@ -150,6 +150,8 @@ async function get_ci_status(octo: Octokit, pr: PullRequest, required_checks: st
             continue;
         }
 
+        core.debug(`checking state ${status.state} of ${status.context}`);
+
         const state = parse_state(status.state);
 
         switch (state) {

@@ -798,6 +798,7 @@ function get_ci_status(octo, pr, required_checks) {
             if (!all_required && !required_checks.includes(status.context)) {
                 continue;
             }
+            core.debug(`checking state ${status.state} of ${status.context}`);
             const state = parse_state(status.state);
             switch (state) {
                 case CIStatus.Failure: {
