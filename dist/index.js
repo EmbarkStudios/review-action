@@ -685,11 +685,11 @@ var Todo;
 })(Todo = exports.Todo || (exports.Todo = {}));
 var CIStatus;
 (function (CIStatus) {
-    CIStatus[CIStatus["Pending"] = 0] = "Pending";
-    CIStatus[CIStatus["Failure"] = 1] = "Failure";
+    CIStatus[CIStatus["Failure"] = 0] = "Failure";
+    CIStatus[CIStatus["Pending"] = 1] = "Pending";
     CIStatus[CIStatus["Success"] = 2] = "Success";
 })(CIStatus = exports.CIStatus || (exports.CIStatus = {}));
-function process_event(ctx, octo, requires_description) {
+function process_event(ctx, octo, requires_description, required_checks) {
     return __awaiter(this, void 0, void 0, function* () {
         const pr = ctx.payload.pull_request;
         if (!pr) {
@@ -720,7 +720,7 @@ function process_event(ctx, octo, requires_description) {
                 break;
             }
         }
-        const ci_status = yield get_ci_status(octo, pr);
+        const ci_status = yield get_ci_status(octo, pr, required_checks);
         if (check_reviews) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
@@ -785,35 +785,60 @@ function process_event(ctx, octo, requires_description) {
     });
 }
 exports.process_event = process_event;
-function get_ci_status(octo, pr) {
+function get_ci_status(octo, pr, required_checks) {
     return __awaiter(this, void 0, void 0, function* () {
         const statuses = yield octo.repos.getCombinedStatusForRef({
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,
             ref: pr.head.sha,
         });
-        core.debug(`CI state is ${statuses.data.state}`);
         var ci_status = undefined;
-        switch (statuses.data.state) {
-            case "failure": {
-                ci_status = CIStatus.Failure;
-                break;
+        const all_required = required_checks.length === 0;
+        for (const status of statuses.data.statuses) {
+            if (!all_required && !required_checks.includes(status.context)) {
+                continue;
             }
-            case "pending": {
-                ci_status = CIStatus.Pending;
-                break;
-            }
-            case "success": {
-                ci_status = CIStatus.Success;
-                break;
-            }
-            default: {
-                core.debug(`unknown status state ${statuses.data.state} encountered`);
-                break;
+            const state = parse_state(status.state);
+            switch (state) {
+                case CIStatus.Failure: {
+                    return state;
+                }
+                case CIStatus.Pending: {
+                    if (!ci_status || ci_status === CIStatus.Success) {
+                        ci_status = state;
+                    }
+                    break;
+                }
+                case CIStatus.Success: {
+                    if (!ci_status) {
+                        ci_status = state;
+                    }
+                    break;
+                }
+                case undefined: {
+                    break;
+                }
             }
         }
         return ci_status;
     });
+}
+function parse_state(state) {
+    switch (state) {
+        case "failure": {
+            return CIStatus.Failure;
+        }
+        case "pending": {
+            return CIStatus.Pending;
+        }
+        case "success": {
+            return CIStatus.Success;
+        }
+        default: {
+            core.debug(`unknown status state ${state} encountered`);
+            return undefined;
+        }
+    }
 }
 
 
@@ -1906,12 +1931,13 @@ function run() {
             const waiting_for_author_labels = core.getInput('waitingForAuthor').split(',');
             const requires_description = util_1.to_bool(core.getInput('requireDescription'));
             const ci_passed_labels = core.getInput('ciPassed').split(',');
+            const required_checks = core.getInput('requiredChecks').split(',');
             const token = core.getInput("GITHUB_TOKEN");
             const octokit = new rest_1.Octokit({
                 auth: `token ${token}`,
                 userAgent: "pr-label action"
             });
-            const processed = yield process_1.process_event(ctx, octokit, requires_description);
+            const processed = yield process_1.process_event(ctx, octokit, requires_description, required_checks);
             var to_remove;
             var to_add;
             switch (processed.todo) {

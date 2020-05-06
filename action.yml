@@ -12,6 +12,8 @@ inputs:
     description: "Won't add readyForMerge labels if the PR does not have a description"
     default: "true"
     required: false
+  requiredChecks:
+    description: "The check contexts that must pass for the `ciPassed` label(s) to be applied, if none, all are required"
   ciPassed:
     description: "Comma separated list of labels to apply when CI has passed"
     required: true

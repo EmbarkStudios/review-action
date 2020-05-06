@@ -14,6 +14,7 @@ async function run(): Promise<void> {
         const waiting_for_author_labels: string[] = core.getInput('waitingForAuthor').split(',');
         const requires_description: boolean = to_bool(core.getInput('requireDescription'));
         const ci_passed_labels: string[] = core.getInput('ciPassed').split(',');
+        const required_checks: string[] = core.getInput('requiredChecks').split(',');
 
         const token = core.getInput("GITHUB_TOKEN");
 
@@ -22,7 +23,7 @@ async function run(): Promise<void> {
             userAgent: "pr-label action"
         });
 
-        const processed = await process_event(ctx, octokit, requires_description);
+        const processed = await process_event(ctx, octokit, requires_description, required_checks);
 
         var to_remove: string[];
         var to_add: string[];

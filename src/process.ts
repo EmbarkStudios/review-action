@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import { Context } from '@actions/github/lib/context'
 import { PullRequest } from './util'
 import { Octokit } from '@octokit/rest';
+import { SSL_OP_SSLEAY_080_CLIENT_DH_BUG } from 'constants';
 
 export enum Todo {
     WaitingOnReview,
@@ -11,8 +12,8 @@ export enum Todo {
 }
 
 export enum CIStatus {
-    Pending,
     Failure,
+    Pending,
     Success,
 }
 
@@ -26,6 +27,7 @@ export async function process_event(
     ctx: Context,
     octo: Octokit,
     requires_description: boolean,
+    required_checks: string[],
 ): Promise<Processed> {
     const pr = ctx.payload.pull_request;
 
@@ -62,7 +64,7 @@ export async function process_event(
         }
     }
 
-    const ci_status = await get_ci_status(octo, pr);
+    const ci_status = await get_ci_status(octo, pr, required_checks);
 
     if (check_reviews) {
         if (pr.requested_reviewers.length > 0) {
@@ -133,35 +135,62 @@ export async function process_event(
     return { todo, ci_status, pull_request: pr };
 }
 
-async function get_ci_status(octo: Octokit, pr: PullRequest): Promise<CIStatus | undefined> {
+async function get_ci_status(octo: Octokit, pr: PullRequest, required_checks: string[]): Promise<CIStatus | undefined> {
     const statuses = await octo.repos.getCombinedStatusForRef({
         owner: pr.base.repo.owner.login,
         repo: pr.base.repo.name,
         ref: pr.head.sha,
     });
 
-    core.debug(`CI state is ${statuses.data.state}`);
-
     var ci_status = undefined;
+    const all_required = required_checks.length === 0;
 
-    switch (statuses.data.state) {
-        case "failure": {
-            ci_status = CIStatus.Failure;
-            break;
+    for (const status of statuses.data.statuses) {
+        if (!all_required && !required_checks.includes(status.context)) {
+            continue;
         }
-        case "pending": {
-            ci_status = CIStatus.Pending;
-            break;
-        }
-        case "success": {
-            ci_status = CIStatus.Success;
-            break;
-        }
-        default: {
-            core.debug(`unknown status state ${statuses.data.state} encountered`);
-            break;
+
+        const state = parse_state(status.state);
+
+        switch (state) {
+            case CIStatus.Failure: {
+                return state;
+            }
+            case CIStatus.Pending: {
+                if (!ci_status || ci_status === CIStatus.Success) {
+                    ci_status = state;
+                }
+                break;
+            }
+            case CIStatus.Success: {
+                if (!ci_status) {
+                    ci_status = state;
+                }
+                break;
+            }
+            case undefined: {
+                break;
+            }
         }
     }
 
     return ci_status;
+}
+
+function parse_state(state: string): CIStatus | undefined {
+    switch (state) {
+        case "failure": {
+            return CIStatus.Failure;
+        }
+        case "pending": {
+            return CIStatus.Pending;
+        }
+        case "success": {
+            return CIStatus.Success;
+        }
+        default: {
+            core.debug(`unknown status state ${state} encountered`);
+            return undefined;
+        }
+    }
 }
