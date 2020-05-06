@@ -721,6 +721,7 @@ function process_event(ctx, octo, requires_description, required_checks) {
             }
         }
         const ci_status = yield get_ci_status(octo, pr, required_checks);
+        core.debug(`CI status is ${ci_status}`);
         if (check_reviews) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);

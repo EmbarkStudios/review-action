@@ -66,6 +66,8 @@ export async function process_event(
 
     const ci_status = await get_ci_status(octo, pr, required_checks);
 
+    core.debug(`CI status is ${ci_status}`);
+
     if (check_reviews) {
         if (pr.requested_reviewers.length > 0) {
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
