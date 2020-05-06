@@ -4534,12 +4534,19 @@ exports.to_bool = to_bool;
 function sync_labels(octokit, pr, to_remove, to_add) {
     return __awaiter(this, void 0, void 0, function* () {
         core.debug(`adding labels '${to_add}', removing labels ${to_remove}`);
-        core.debug(`LABELS ARE ${JSON.stringify(pr.labels, null, 2)}`);
-        var labels = [];
+        // We need to reretrieve all the labels on the PR as it is possible they have changed since this workflow
+        // was triggered, otherwise we risk removing labels that have been added in the time between then and now
+        const current_labels = yield octokit.issues.listLabelsOnIssue({
+            owner: pr.base.repo.owner.login,
+            repo: pr.base.repo.name,
+            issue_number: pr.number,
+        });
+        const labels = current_labels.data.map((label) => label.name);
+        var triage_labels = [];
         var changed = false;
-        for (const label of pr.labels) {
-            if (!to_remove.includes(label.name)) {
-                labels.push(label.name);
+        for (const label of labels) {
+            if (!to_remove.includes(label)) {
+                triage_labels.push(label);
             }
             else {
                 changed = true;
@@ -4552,15 +4559,15 @@ function sync_labels(octokit, pr, to_remove, to_add) {
             }
         }
         if (!changed) {
-            core.info("No labels to change");
+            core.info(`No labels to change`);
             return;
         }
-        core.debug(`changings labels from '${pr.labels}' to '${labels}'`);
+        core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
         yield octokit.issues.replaceAllLabels({
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,
             issue_number: pr.number,
-            labels: labels,
+            labels: triage_labels,
         });
     });
 }
