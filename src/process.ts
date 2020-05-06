@@ -140,6 +140,8 @@ async function get_ci_status(octo: Octokit, pr: PullRequest): Promise<CIStatus |
         ref: pr.head.sha,
     });
 
+    core.debug(`CI state is ${statuses.data.state}`);
+
     var ci_status = undefined;
 
     switch (statuses.data.state) {

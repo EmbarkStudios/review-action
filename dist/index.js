@@ -792,6 +792,7 @@ function get_ci_status(octo, pr) {
             repo: pr.base.repo.name,
             ref: pr.head.sha,
         });
+        core.debug(`CI state is ${statuses.data.state}`);
         var ci_status = undefined;
         switch (statuses.data.state) {
             case "failure": {
