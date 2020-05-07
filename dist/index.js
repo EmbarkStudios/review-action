@@ -682,47 +682,76 @@ var Todo;
     Todo[Todo["WaitingOnAuthor"] = 1] = "WaitingOnAuthor";
     Todo[Todo["WaitingOnDescription"] = 2] = "WaitingOnDescription";
     Todo[Todo["ReadyForMerge"] = 3] = "ReadyForMerge";
-})(Todo = exports.Todo || (exports.Todo = {}));
+})(Todo || (Todo = {}));
 var CIStatus;
 (function (CIStatus) {
     CIStatus[CIStatus["Failure"] = 0] = "Failure";
     CIStatus[CIStatus["Pending"] = 1] = "Pending";
     CIStatus[CIStatus["Success"] = 2] = "Success";
-})(CIStatus = exports.CIStatus || (exports.CIStatus = {}));
-function process_event(ctx, octo, requires_description, required_checks) {
+})(CIStatus || (CIStatus = {}));
+function on_status_event(ctx, octo, cfg) {
     return __awaiter(this, void 0, void 0, function* () {
-        const pr = ctx.payload.pull_request;
-        if (!pr) {
-            throw new Error('we should have a pull request object!');
+        // Ignore statuses for contexts we don't care about
+        if (cfg.required_checks.length > 0 && !cfg.required_checks.includes(ctx.payload.context)) {
+            core.info(`Ignoring status event ${ctx.payload.state} for context ${ctx.payload.context}`);
+            return [];
         }
-        core.debug(`${ctx.eventName} of type '${ctx.action}' received`);
-        if (pr.draft === true) {
-            core.info(`Ignoring draft PR`);
-            return {
-                todo: Todo.WaitingOnAuthor,
-                pull_request: pr
-            };
+        const branches = ctx.payload.branches;
+        if (!branches || branches.length === 0) {
+            core.info(`Ignoring status event for ${ctx.payload.context}, no branches found`);
+            return [];
         }
-        var todo = undefined;
-        var check_reviews = true;
-        switch (ctx.eventName) {
-            case "pull_request_review": {
-                break;
+        var pull_requests = [];
+        for (const branch of branches) {
+            const prs = yield octo.pulls.list({
+                owner: ctx.repo.owner,
+                repo: ctx.repo.repo,
+                state: "open",
+                head: `${ctx.repo.owner}:${branch.name}`,
+                sort: "updated",
+                direction: "desc",
+            });
+            pull_requests.concat(prs.data);
+        }
+        return pull_requests;
+    });
+}
+function process_event(ctx, octo, cfg) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var check_reviews = false;
+        var pull_requests = [];
+        if (ctx.eventName === "status") {
+            pull_requests = yield on_status_event(ctx, octo, cfg);
+        }
+        else if (ctx.payload.pull_request) {
+            check_reviews = true;
+            pull_requests.push(ctx.payload.pull_request);
+        }
+        if (pull_requests.length === 0) {
+            core.info(`event ${ctx.eventName} didn't pertain to 1 or more pull requests, ignoring`);
+            return;
+        }
+        var triage_actions = [];
+        for (const pr of pull_requests) {
+            if (pr.draft === true) {
+                core.info(`Ignoring draft PR#${pr.number}`);
+                triage_actions.push({
+                    todo: Todo.WaitingOnAuthor,
+                    pull_request: pr,
+                });
+                continue;
             }
-            case "pull_request": {
-                switch (ctx.action) {
-                    case "ready_for_review": {
-                        todo = Todo.WaitingOnReview;
-                        check_reviews = false;
-                        break;
-                    }
-                }
-                break;
+            const ci_status = yield get_ci_status(octo, pr, cfg.required_checks);
+            core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
+            var todo = undefined;
+            if (!check_reviews) {
+                triage_actions.push({
+                    todo,
+                    ci_status,
+                    pull_request: pr,
+                });
+                continue;
             }
-        }
-        const ci_status = yield get_ci_status(octo, pr, required_checks);
-        core.debug(`CI status is ${ci_status}`);
-        if (check_reviews) {
             if (pr.requested_reviewers.length > 0) {
                 core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
                 todo = Todo.WaitingOnReview;
@@ -737,7 +766,7 @@ function process_event(ctx, octo, requires_description, required_checks) {
                 });
                 const author_id = pr.user.id;
                 // If any of the reviews are not APPROVED, we mark the PR as still
-                // waiting on reviews
+                // waiting on review
                 if (reviews.data.length > 0) {
                     // The set of reviews will contain ALL of the reviews, including old ones that have been supplanted
                     // by newer ones, thus we have to keep track of the latest review for each unique user to determine
@@ -756,7 +785,6 @@ function process_event(ctx, octo, requires_description, required_checks) {
                         else {
                             var item = reviewers[ind];
                             if (item.timestamp < timestamp) {
-                                core.debug(`review ${JSON.stringify(review, null, 2)} is newer than ${JSON.stringify(item, null, 2)}, replacing`);
                                 item.timestamp = timestamp;
                                 item.state = review.state;
                             }
@@ -775,14 +803,19 @@ function process_event(ctx, octo, requires_description, required_checks) {
                     todo = Todo.WaitingOnReview;
                 }
             }
-        }
-        if (todo == Todo.ReadyForMerge && requires_description) {
-            if (!pr.body) {
-                core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
-                todo = Todo.WaitingOnDescription;
+            if (todo == Todo.ReadyForMerge && cfg.requires_description) {
+                if (!pr.body) {
+                    core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
+                    todo = Todo.WaitingOnDescription;
+                }
             }
+            triage_actions.push({
+                todo,
+                ci_status,
+                pull_request: pr,
+            });
         }
-        return { todo, ci_status, pull_request: pr };
+        yield update_labels(octo, cfg, triage_actions);
     });
 }
 exports.process_event = process_event;
@@ -841,6 +874,90 @@ function parse_state(state) {
             return undefined;
         }
     }
+}
+function sync_pr_labels(octo, pr, to_remove, to_add) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.debug(`PR#${pr.number} adding labels '${to_add}', removing labels ${to_remove}`);
+        // We need to reretrieve all the labels on the PR as it is possible they have changed since this workflow
+        // was triggered, otherwise we risk removing labels that have been added in the time between then and now
+        const current_labels = yield octo.issues.listLabelsOnIssue({
+            owner: pr.base.repo.owner.login,
+            repo: pr.base.repo.name,
+            issue_number: pr.number,
+        });
+        const labels = current_labels.data.map((label) => label.name);
+        var triage_labels = [];
+        var changed = false;
+        for (const label of labels) {
+            if (!to_remove.includes(label)) {
+                triage_labels.push(label);
+            }
+            else {
+                changed = true;
+            }
+        }
+        for (const add of to_add) {
+            if (!triage_labels.includes(add)) {
+                triage_labels.push(add);
+                changed = true;
+            }
+        }
+        if (!changed) {
+            core.info(`No labels to change`);
+            return;
+        }
+        core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
+        yield octo.issues.replaceAllLabels({
+            owner: pr.base.repo.owner.login,
+            repo: pr.base.repo.name,
+            issue_number: pr.number,
+            labels: triage_labels,
+        });
+    });
+}
+function update_labels(octo, cfg, triage_actions) {
+    return __awaiter(this, void 0, void 0, function* () {
+        for (const ta of triage_actions) {
+            var to_remove;
+            var to_add;
+            switch (ta.todo) {
+                case Todo.ReadyForMerge: {
+                    to_remove = cfg.waiting_for_review_labels.concat(cfg.waiting_for_author_labels);
+                    to_add = cfg.ready_for_merge_labels;
+                    break;
+                }
+                case Todo.WaitingOnReview: {
+                    to_remove = cfg.ready_for_merge_labels.concat(cfg.waiting_for_author_labels);
+                    to_add = cfg.waiting_for_review_labels;
+                    break;
+                }
+                case Todo.WaitingOnAuthor:
+                case Todo.WaitingOnDescription: {
+                    to_remove = cfg.ready_for_merge_labels.concat(cfg.waiting_for_review_labels);
+                    to_add = cfg.waiting_for_author_labels;
+                    break;
+                }
+                default: {
+                    to_remove = [];
+                    to_add = [];
+                    break;
+                }
+            }
+            switch (ta.ci_status) {
+                case CIStatus.Success: {
+                    to_add.concat(cfg.ci_passed_labels);
+                    break;
+                }
+                case CIStatus.Pending:
+                case CIStatus.Failure:
+                default: {
+                    to_remove.concat(cfg.ci_passed_labels);
+                    break;
+                }
+            }
+            yield sync_pr_labels(octo, ta.pull_request, to_remove, to_add);
+        }
+    });
 }
 
 
@@ -1921,66 +2038,34 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const core = __importStar(__webpack_require__(470));
 const github = __importStar(__webpack_require__(469));
 const process_1 = __webpack_require__(73);
-const util_1 = __webpack_require__(322);
 const rest_1 = __webpack_require__(889);
+function to_bool(value) {
+    if (value === 'true') {
+        return true;
+    }
+    return typeof value === 'string'
+        ? !!+value // we parse string to integer first
+        : !!value;
+}
 function run() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             // Get the JSON webhook payload for the event that triggered the workflow
             const ctx = github.context;
-            const waiting_for_review_labels = core.getInput('waitingForReview').split(',');
-            const ready_for_merge_labels = core.getInput('readyForMerge').split(',');
-            const waiting_for_author_labels = core.getInput('waitingForAuthor').split(',');
-            const requires_description = util_1.to_bool(core.getInput('requireDescription'));
-            const ci_passed_labels = core.getInput('ciPassed').split(',');
-            const required_checks = core.getInput('requiredChecks').split(',');
+            const cfg = {
+                waiting_for_review_labels: core.getInput('waitingForReview').split(','),
+                ready_for_merge_labels: core.getInput('readyForMerge').split(','),
+                waiting_for_author_labels: core.getInput('waitingForAuthor').split(','),
+                requires_description: to_bool(core.getInput('requireDescription')),
+                ci_passed_labels: core.getInput('ciPassed').split(','),
+                required_checks: core.getInput('requiredChecks').split(','),
+            };
             const token = core.getInput("GITHUB_TOKEN");
             const octokit = new rest_1.Octokit({
                 auth: `token ${token}`,
                 userAgent: "pr-label action"
             });
-            const processed = yield process_1.process_event(ctx, octokit, requires_description, required_checks);
-            var to_remove;
-            var to_add;
-            switch (processed.todo) {
-                case process_1.Todo.ReadyForMerge: {
-                    to_remove = waiting_for_review_labels.concat(waiting_for_author_labels);
-                    to_add = ready_for_merge_labels;
-                    break;
-                }
-                case process_1.Todo.WaitingOnReview: {
-                    to_remove = ready_for_merge_labels.concat(waiting_for_author_labels);
-                    to_add = waiting_for_review_labels;
-                    break;
-                }
-                case process_1.Todo.WaitingOnAuthor:
-                case process_1.Todo.WaitingOnDescription: {
-                    to_remove = ready_for_merge_labels.concat(waiting_for_review_labels);
-                    to_add = waiting_for_author_labels;
-                    break;
-                }
-                default: {
-                    to_remove = [];
-                    to_add = [];
-                    break;
-                }
-            }
-            switch (processed.ci_status) {
-                case process_1.CIStatus.Success: {
-                    to_add.concat(ci_passed_labels);
-                    break;
-                }
-                case process_1.CIStatus.Pending:
-                case process_1.CIStatus.Failure:
-                default: {
-                    to_remove.concat(ci_passed_labels);
-                    break;
-                }
-            }
-            yield util_1.sync_labels(octokit, processed.pull_request, to_remove, to_add);
-            if (processed.todo == process_1.Todo.WaitingOnDescription) {
-                throw new Error();
-            }
+            yield process_1.process_event(ctx, octokit, cfg);
         }
         catch (error) {
             core.setFailed(error.message);
@@ -4523,83 +4608,6 @@ paginateRest.VERSION = VERSION;
 
 exports.paginateRest = paginateRest;
 //# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 322:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const core = __importStar(__webpack_require__(470));
-function to_bool(value) {
-    if (value === 'true') {
-        return true;
-    }
-    return typeof value === 'string'
-        ? !!+value // we parse string to integer first
-        : !!value;
-}
-exports.to_bool = to_bool;
-function sync_labels(octokit, pr, to_remove, to_add) {
-    return __awaiter(this, void 0, void 0, function* () {
-        core.debug(`adding labels '${to_add}', removing labels ${to_remove}`);
-        // We need to reretrieve all the labels on the PR as it is possible they have changed since this workflow
-        // was triggered, otherwise we risk removing labels that have been added in the time between then and now
-        const current_labels = yield octokit.issues.listLabelsOnIssue({
-            owner: pr.base.repo.owner.login,
-            repo: pr.base.repo.name,
-            issue_number: pr.number,
-        });
-        const labels = current_labels.data.map((label) => label.name);
-        var triage_labels = [];
-        var changed = false;
-        for (const label of labels) {
-            if (!to_remove.includes(label)) {
-                triage_labels.push(label);
-            }
-            else {
-                changed = true;
-            }
-        }
-        for (const add of to_add) {
-            if (!triage_labels.includes(add)) {
-                triage_labels.push(add);
-                changed = true;
-            }
-        }
-        if (!changed) {
-            core.info(`No labels to change`);
-            return;
-        }
-        core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
-        yield octokit.issues.replaceAllLabels({
-            owner: pr.base.repo.owner.login,
-            repo: pr.base.repo.name,
-            issue_number: pr.number,
-            labels: triage_labels,
-        });
-    });
-}
-exports.sync_labels = sync_labels;
 
 
 /***/ }),

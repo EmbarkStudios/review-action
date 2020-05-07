@@ -1,74 +1,118 @@
 import * as core from '@actions/core'
 import { Context } from '@actions/github/lib/context'
-import { PullRequest } from './util'
 import { Octokit } from '@octokit/rest';
-import { SSL_OP_SSLEAY_080_CLIENT_DH_BUG } from 'constants';
 
-export enum Todo {
+export interface Config {
+    waiting_for_review_labels: string[];
+    ready_for_merge_labels: string[];
+    waiting_for_author_labels: string[];
+    requires_description: boolean;
+    ci_passed_labels: string[];
+    required_checks: string[];
+}
+
+enum Todo {
     WaitingOnReview,
     WaitingOnAuthor,
     WaitingOnDescription,
     ReadyForMerge,
 }
 
-export enum CIStatus {
+enum CIStatus {
     Failure,
     Pending,
     Success,
 }
 
-interface Processed {
+interface PullRequest {
+    [key: string]: any;
+    number: number;
+    html_url?: string;
+    body?: string;
+}
+
+interface TriageAction {
     todo?: Todo;
     ci_status?: CIStatus;
     pull_request: PullRequest;
 }
 
+async function on_status_event(ctx: Context, octo: Octokit, cfg: Config): Promise<PullRequest[]> {
+    // Ignore statuses for contexts we don't care about
+    if (cfg.required_checks.length > 0 && !cfg.required_checks.includes(ctx.payload.context)) {
+        core.info(`Ignoring status event ${ctx.payload.state} for context ${ctx.payload.context}`);
+        return [];
+    }
+
+    const branches = ctx.payload.branches;
+
+    if (!branches || branches.length === 0) {
+        core.info(`Ignoring status event for ${ctx.payload.context}, no branches found`);
+        return [];
+    }
+
+    var pull_requests: PullRequest[] = [];
+
+    for (const branch of branches) {
+        const prs = await octo.pulls.list({
+            owner: ctx.repo.owner,
+            repo: ctx.repo.repo,
+            state: "open",
+            head: `${ctx.repo.owner}:${branch.name}`,
+            sort: "updated",
+            direction: "desc",
+        });
+
+        pull_requests.concat(prs.data);
+    }
+
+    return pull_requests;
+}
+
 export async function process_event(
     ctx: Context,
     octo: Octokit,
-    requires_description: boolean,
-    required_checks: string[],
-): Promise<Processed> {
-    const pr = ctx.payload.pull_request;
-
-    if (!pr) {
-        throw new Error('we should have a pull request object!');
+    cfg: Config,
+): Promise<void> {
+    var check_reviews = false;
+    var pull_requests: PullRequest[] = [];
+    if (ctx.eventName === "status") {
+        pull_requests = await on_status_event(ctx, octo, cfg);
+    } else if (ctx.payload.pull_request) {
+        check_reviews = true;
+        pull_requests.push(ctx.payload.pull_request);
     }
 
-    core.debug(`${ctx.eventName} of type '${ctx.action}' received`);
-
-    if (pr.draft === true) {
-        core.info(`Ignoring draft PR`);
-        return {
-            todo: Todo.WaitingOnAuthor,
-            pull_request: pr
-        };
+    if (pull_requests.length === 0) {
+        core.info(`event ${ctx.eventName} didn't pertain to 1 or more pull requests, ignoring`);
+        return;
     }
 
-    var todo = undefined;
-    var check_reviews = true;
+    var triage_actions: TriageAction[] = [];
 
-    switch (ctx.eventName) {
-        case "pull_request_review": {
-            break;
+    for (const pr of pull_requests) {
+        if (pr.draft === true) {
+            core.info(`Ignoring draft PR#${pr.number}`);
+            triage_actions.push({
+                todo: Todo.WaitingOnAuthor,
+                pull_request: pr,
+            });
+            continue;
         }
-        case "pull_request": {
-            switch (ctx.action) {
-                case "ready_for_review": {
-                    todo = Todo.WaitingOnReview;
-                    check_reviews = false;
-                    break;
-                }
-            }
-            break;
+
+        const ci_status = await get_ci_status(octo, pr, cfg.required_checks);
+        core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
+
+        var todo = undefined;
+        if (!check_reviews) {
+            triage_actions.push({
+                todo,
+                ci_status,
+                pull_request: pr,
+            });
+            continue;
         }
-    }
 
-    const ci_status = await get_ci_status(octo, pr, required_checks);
-
-    core.debug(`CI status is ${ci_status}`);
-
-    if (check_reviews) {
         if (pr.requested_reviewers.length > 0) {
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
             todo = Todo.WaitingOnReview;
@@ -84,7 +128,7 @@ export async function process_event(
             const author_id: number = pr.user.id;
 
             // If any of the reviews are not APPROVED, we mark the PR as still
-            // waiting on reviews
+            // waiting on review
             if (reviews.data.length > 0) {
                 // The set of reviews will contain ALL of the reviews, including old ones that have been supplanted
                 // by newer ones, thus we have to keep track of the latest review for each unique user to determine
@@ -106,7 +150,6 @@ export async function process_event(
                     } else {
                         var item = reviewers[ind];
                         if (item.timestamp < timestamp) {
-                            core.debug(`review ${JSON.stringify(review, null, 2)} is newer than ${JSON.stringify(item, null, 2)}, replacing`);
                             item.timestamp = timestamp;
                             item.state = review.state;
                         }
@@ -125,16 +168,22 @@ export async function process_event(
                 todo = Todo.WaitingOnReview;
             }
         }
-    }
 
-    if (todo == Todo.ReadyForMerge && requires_description) {
-        if (!pr.body) {
-            core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
-            todo = Todo.WaitingOnDescription;
+        if (todo == Todo.ReadyForMerge && cfg.requires_description) {
+            if (!pr.body) {
+                core.error(`The PR is ready to be merged, but it doesn't have a body, and one is required`);
+                todo = Todo.WaitingOnDescription;
+            }
         }
+
+        triage_actions.push({
+            todo,
+            ci_status,
+            pull_request: pr,
+        });
     }
 
-    return { todo, ci_status, pull_request: pr };
+    await update_labels(octo, cfg, triage_actions);
 }
 
 async function get_ci_status(octo: Octokit, pr: PullRequest, required_checks: string[]): Promise<CIStatus | undefined> {
@@ -196,5 +245,96 @@ function parse_state(state: string): CIStatus | undefined {
             core.debug(`unknown status state ${state} encountered`);
             return undefined;
         }
+    }
+}
+
+async function sync_pr_labels(octo: Octokit, pr: PullRequest, to_remove: string[], to_add: string[]) {
+    core.debug(`PR#${pr.number} adding labels '${to_add}', removing labels ${to_remove}`);
+
+    // We need to reretrieve all the labels on the PR as it is possible they have changed since this workflow
+    // was triggered, otherwise we risk removing labels that have been added in the time between then and now
+    const current_labels = await octo.issues.listLabelsOnIssue({
+        owner: pr.base.repo.owner.login,
+        repo: pr.base.repo.name,
+        issue_number: pr.number,
+    });
+
+    const labels = current_labels.data.map((label) => label.name);
+
+    var triage_labels: string[] = [];
+    var changed = false;
+    for (const label of labels) {
+        if (!to_remove.includes(label)) {
+            triage_labels.push(label);
+        } else {
+            changed = true;
+        }
+    }
+
+    for (const add of to_add) {
+        if (!triage_labels.includes(add)) {
+            triage_labels.push(add);
+            changed = true;
+        }
+    }
+
+    if (!changed) {
+        core.info(`No labels to change`);
+        return;
+    }
+
+    core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
+
+    await octo.issues.replaceAllLabels({
+        owner: pr.base.repo.owner.login,
+        repo: pr.base.repo.name,
+        issue_number: pr.number,
+        labels: triage_labels,
+    });
+}
+
+async function update_labels(octo: Octokit, cfg: Config, triage_actions: TriageAction[]): Promise<void> {
+    for (const ta of triage_actions) {
+        var to_remove: string[];
+        var to_add: string[];
+
+        switch (ta.todo) {
+            case Todo.ReadyForMerge: {
+                to_remove = cfg.waiting_for_review_labels.concat(cfg.waiting_for_author_labels);
+                to_add = cfg.ready_for_merge_labels;
+                break;
+            }
+            case Todo.WaitingOnReview: {
+                to_remove = cfg.ready_for_merge_labels.concat(cfg.waiting_for_author_labels);
+                to_add = cfg.waiting_for_review_labels;
+                break;
+            }
+            case Todo.WaitingOnAuthor:
+            case Todo.WaitingOnDescription: {
+                to_remove = cfg.ready_for_merge_labels.concat(cfg.waiting_for_review_labels);
+                to_add = cfg.waiting_for_author_labels;
+                break;
+            }
+            default: {
+                to_remove = [];
+                to_add = [];
+                break;
+            }
+        }
+
+        switch (ta.ci_status) {
+            case CIStatus.Success: {
+                to_add.concat(cfg.ci_passed_labels);
+                break;
+            }
+            case CIStatus.Pending:
+            case CIStatus.Failure:
+            default: {
+                to_remove.concat(cfg.ci_passed_labels);
+                break;
+            }
+        }
+
+        await sync_pr_labels(octo, ta.pull_request, to_remove, to_add);
     }
 }
