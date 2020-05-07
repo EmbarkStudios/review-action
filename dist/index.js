@@ -711,7 +711,6 @@ function on_status_event(ctx, octo, cfg) {
                 sort: "updated",
                 direction: "desc",
             });
-            core.debug(`Found PRs ${JSON.stringify(prs, null, 2)} for branch ${branch.name}`);
             pull_requests.push(...prs.data);
         }
         return pull_requests;
@@ -907,7 +906,7 @@ function sync_pr_labels(octo, pr, to_remove, to_add) {
             core.info(`No labels to change`);
             return;
         }
-        core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
+        core.debug(`changings labels from '${labels}' to '${triage_labels}'`);
         yield octo.issues.replaceAllLabels({
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,

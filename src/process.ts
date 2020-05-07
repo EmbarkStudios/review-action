@@ -63,8 +63,6 @@ async function on_status_event(ctx: Context, octo: Octokit, cfg: Config): Promis
             direction: "desc",
         });
 
-        core.debug(`Found PRs ${JSON.stringify(prs, null, 2)} for branch ${branch.name}`)
-
         pull_requests.push(...prs.data);
     }
 
@@ -285,7 +283,7 @@ async function sync_pr_labels(octo: Octokit, pr: PullRequest, to_remove: string[
         return;
     }
 
-    core.debug(`changings labels from '${current_labels}' to '${triage_labels}'`);
+    core.debug(`changings labels from '${labels}' to '${triage_labels}'`);
 
     await octo.issues.replaceAllLabels({
         owner: pr.base.repo.owner.login,
