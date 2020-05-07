@@ -326,13 +326,13 @@ async function update_labels(octo: Octokit, cfg: Config, triage_actions: TriageA
 
         switch (ta.ci_status) {
             case CIStatus.Success: {
-                to_add.concat(cfg.ci_passed_labels);
+                to_add.push(...cfg.ci_passed_labels);
                 break;
             }
             case CIStatus.Pending:
             case CIStatus.Failure:
             default: {
-                to_remove.concat(cfg.ci_passed_labels);
+                to_remove.push(...cfg.ci_passed_labels);
                 break;
             }
         }
