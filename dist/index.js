@@ -712,7 +712,7 @@ function on_status_event(ctx, octo, cfg) {
                 direction: "desc",
             });
             core.debug(`Found PRs ${JSON.stringify(prs, null, 2)} for branch ${branch.name}`);
-            pull_requests.concat(prs.data);
+            pull_requests.push(...prs.data);
         }
         return pull_requests;
     });
