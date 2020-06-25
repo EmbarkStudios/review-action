@@ -23,6 +23,7 @@ async function run(): Promise<void> {
             ready_for_merge_labels: core.getInput('readyForMerge').split(','),
             waiting_for_author_labels: core.getInput('waitingForAuthor').split(','),
             requires_description: to_bool(core.getInput('requireDescription')),
+            allow_merge_without_review: to_bool(core.getInput('allowMergeWithoutReview')),
             ci_passed_labels: core.getInput('ciPassed').split(','),
             required_checks: core.getInput('requiredChecks').split(','),
         };

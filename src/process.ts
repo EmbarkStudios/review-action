@@ -7,6 +7,7 @@ export interface Config {
     ready_for_merge_labels: string[];
     waiting_for_author_labels: string[];
     requires_description: boolean;
+    allow_merge_without_review: boolean;
     ci_passed_labels: string[];
     required_checks: string[];
 }
@@ -117,6 +118,7 @@ export async function process_event(
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
             todo = Todo.WaitingOnReview;
         } else {
+
             // Check the state of reviewers to determine if we are ready to be
             // merged or not
             const reviews = await octo.pulls.listReviews({
@@ -126,6 +128,7 @@ export async function process_event(
             });
 
             const author_id: number = pr.user.id;
+
 
             // If any of the reviews are not APPROVED, we mark the PR as still
             // waiting on review
@@ -165,8 +168,15 @@ export async function process_event(
                     todo = Todo.WaitingOnReview;
                 }
             } else {
-                todo = Todo.WaitingOnReview;
+                // If there are no reviews and we allow merges without them, mark as ready for merge
+                if (cfg.allow_merge_without_review) {
+                    todo = Todo.ReadyForMerge;
+                } else {
+                    todo = Todo.WaitingOnReview;
+                }
             }
+
+
         }
 
         if (todo == Todo.ReadyForMerge && cfg.requires_description) {
