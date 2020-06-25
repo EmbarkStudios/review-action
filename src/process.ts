@@ -7,6 +7,7 @@ export interface Config {
     ready_for_merge_labels: string[];
     waiting_for_author_labels: string[];
     requires_description: boolean;
+    allow_merge_without_review: boolean;
     ci_passed_labels: string[];
     required_checks: string[];
 }
@@ -165,7 +166,12 @@ export async function process_event(
                     todo = Todo.WaitingOnReview;
                 }
             } else {
-                todo = Todo.WaitingOnReview;
+                // If there are no reviews and we allow merges without them, mark as ready for merge
+                if (cfg.allow_merge_without_review) {
+                    todo = Todo.ReadyForMerge;
+                } else {
+                    todo = Todo.WaitingOnReview;
+                }
             }
         }
 
