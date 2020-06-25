@@ -167,9 +167,12 @@ export async function process_event(
                 }
             } else {
                 // If there are no reviews and we allow merges without them, mark as ready for merge
+                core.debug(`Allow merge without review is set to ${cfg.allow_merge_without_review}`);
                 if (cfg.allow_merge_without_review) {
+                    core.debug(`There are no reviews and we dont need any, marking ready for merge`);
                     todo = Todo.ReadyForMerge;
                 } else {
+                    core.debug(`There are no reviews but we need them, marking as waiting on review`);
                     todo = Todo.WaitingOnReview;
                 }
             }
