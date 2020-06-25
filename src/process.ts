@@ -118,7 +118,6 @@ export async function process_event(
             core.debug(`Detected ${pr.requested_reviewers.length} pending reviewers`);
             todo = Todo.WaitingOnReview;
         } else {
-
             // Check the state of reviewers to determine if we are ready to be
             // merged or not
             const reviews = await octo.pulls.listReviews({
