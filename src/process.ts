@@ -129,7 +129,6 @@ export async function process_event(
 
             const author_id: number = pr.user.id;
 
-
             // If any of the reviews are not APPROVED, we mark the PR as still
             // waiting on review
             if (reviews.data.length > 0) {
