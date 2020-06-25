@@ -175,8 +175,6 @@ export async function process_event(
                     todo = Todo.WaitingOnReview;
                 }
             }
-
-
         }
 
         if (todo == Todo.ReadyForMerge && cfg.requires_description) {
