@@ -168,8 +168,6 @@ export async function process_event(
                     core.info(`All reviews are approved, marking PR as ready to merge`);
                     todo = Todo.ReadyForMerge;
                 } else {
-                    core.debug(`All reviews are not approved, so still waiting on review`);
-
                     todo = Todo.WaitingOnReview;
                 }
 
