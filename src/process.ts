@@ -103,6 +103,7 @@ export async function process_event(
 
         const ci_status = await get_ci_status(octo, pr, cfg.required_checks);
         core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
+        core.debug(`Test test debug test`);
 
         var todo = undefined;
         if (!check_reviews) {
