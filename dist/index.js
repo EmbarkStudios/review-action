@@ -743,6 +743,7 @@ function process_event(ctx, octo, cfg) {
             }
             const ci_status = yield get_ci_status(octo, pr, cfg.required_checks);
             core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
+            core.debug(`test Debug`);
             var todo = undefined;
             if (!check_reviews) {
                 triage_actions.push({
