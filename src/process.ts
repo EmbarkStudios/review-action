@@ -92,6 +92,8 @@ export async function process_event(
     var triage_actions: TriageAction[] = [];
 
     for (const pr of pull_requests) {
+        core.debug(`Test test debug test`);
+
         if (pr.draft === true) {
             core.info(`Ignoring draft PR#${pr.number}`);
             triage_actions.push({
@@ -103,7 +105,7 @@ export async function process_event(
 
         const ci_status = await get_ci_status(octo, pr, cfg.required_checks);
         core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
-        core.debug(`Test test debug test`);
+
 
         var todo = undefined;
         if (!check_reviews) {
