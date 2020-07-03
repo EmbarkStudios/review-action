@@ -692,7 +692,8 @@ var CIStatus;
 function on_status_event(ctx, octo, cfg) {
     return __awaiter(this, void 0, void 0, function* () {
         // Ignore statuses for contexts we don't care about
-        if (cfg.required_checks.length > 0 && !cfg.required_checks.includes(ctx.payload.context)) {
+        if (cfg.required_checks.length > 0 &&
+            !cfg.required_checks.includes(ctx.payload.context)) {
             core.info(`Ignoring status event ${ctx.payload.state} for context ${ctx.payload.context}`);
             return [];
         }
@@ -706,10 +707,10 @@ function on_status_event(ctx, octo, cfg) {
             const prs = yield octo.pulls.list({
                 owner: ctx.repo.owner,
                 repo: ctx.repo.repo,
-                state: "open",
+                state: 'open',
                 head: `${ctx.repo.owner}:${branch.name}`,
-                sort: "updated",
-                direction: "desc",
+                sort: 'updated',
+                direction: 'desc'
             });
             pull_requests.push(...prs.data);
         }
@@ -720,7 +721,7 @@ function process_event(ctx, octo, cfg) {
     return __awaiter(this, void 0, void 0, function* () {
         var check_reviews = false;
         var pull_requests = [];
-        if (ctx.eventName === "status") {
+        if (ctx.eventName === 'status') {
             pull_requests = yield on_status_event(ctx, octo, cfg);
         }
         else if (ctx.payload.pull_request) {
@@ -733,23 +734,23 @@ function process_event(ctx, octo, cfg) {
         }
         var triage_actions = [];
         for (const pr of pull_requests) {
+            core.debug(`Test test debug test`);
             if (pr.draft === true) {
                 core.info(`Ignoring draft PR#${pr.number}`);
                 triage_actions.push({
                     todo: Todo.WaitingOnAuthor,
-                    pull_request: pr,
+                    pull_request: pr
                 });
                 continue;
             }
             const ci_status = yield get_ci_status(octo, pr, cfg.required_checks);
             core.debug(`CI status for PR#${pr.number} is ${ci_status}`);
-            core.debug(`test Debug`);
             var todo = undefined;
             if (!check_reviews) {
                 triage_actions.push({
                     todo,
                     ci_status,
-                    pull_request: pr,
+                    pull_request: pr
                 });
                 continue;
             }
@@ -763,7 +764,7 @@ function process_event(ctx, octo, cfg) {
                 const reviews = yield octo.pulls.listReviews({
                     owner: pr.base.repo.owner.login,
                     repo: pr.base.repo.name,
-                    pull_number: pr.number,
+                    pull_number: pr.number
                 });
                 const author_id = pr.user.id;
                 // If any of the reviews are not APPROVED, we mark the PR as still
@@ -779,9 +780,13 @@ function process_event(ctx, octo, cfg) {
                         if (review.user.id === author_id) {
                             continue;
                         }
-                        const ind = reviewers.findIndex((item) => item.reviewer === review.user.id);
+                        const ind = reviewers.findIndex(item => item.reviewer === review.user.id);
                         if (ind == -1) {
-                            reviewers.push({ reviewer: review.user.id, state: review.state, timestamp });
+                            reviewers.push({
+                                reviewer: review.user.id,
+                                state: review.state,
+                                timestamp
+                            });
                         }
                         else {
                             var item = reviewers[ind];
@@ -791,7 +796,9 @@ function process_event(ctx, octo, cfg) {
                             }
                         }
                     }
-                    const all_approved = reviewers.every((review) => review.state == "APPROVED");
+                    const all_approved = reviewers.every(review => review.state == 'APPROVED');
+                    const no_changes_requested = reviewers.every(review => review.state != 'CHANGES_REQUESTED');
+                    core.debug(`Are there changes requested? ${no_changes_requested}`);
                     if (all_approved) {
                         core.info(`All reviews are approved, marking PR as ready to merge`);
                         todo = Todo.ReadyForMerge;
@@ -799,9 +806,22 @@ function process_event(ctx, octo, cfg) {
                     else {
                         todo = Todo.WaitingOnReview;
                     }
+                    if (no_changes_requested && !cfg.requires_review) {
+                        core.debug(`No changes requested, and we don't require reviews, marking PR as ready to merge`);
+                        todo = Todo.ReadyForMerge;
+                    }
                 }
                 else {
-                    todo = Todo.WaitingOnReview;
+                    // If there are no reviews and we allow merges without them, mark as ready for merge
+                    core.debug(`RequiresReview is set to ${cfg.requires_review}`);
+                    if (cfg.requires_review) {
+                        core.debug(`There are no reviews but we require them, marking as waiting on review`);
+                        todo = Todo.WaitingOnReview;
+                    }
+                    else {
+                        core.debug(`There are no reviews and we require them, marking ready for merge`);
+                        todo = Todo.ReadyForMerge;
+                    }
                 }
             }
             if (todo == Todo.ReadyForMerge && cfg.requires_description) {
@@ -813,7 +833,7 @@ function process_event(ctx, octo, cfg) {
             triage_actions.push({
                 todo,
                 ci_status,
-                pull_request: pr,
+                pull_request: pr
             });
         }
         yield update_labels(octo, cfg, triage_actions);
@@ -825,7 +845,7 @@ function get_ci_status(octo, pr, required_checks) {
         const statuses = yield octo.repos.getCombinedStatusForRef({
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,
-            ref: pr.head.sha,
+            ref: pr.head.sha
         });
         var ci_status = undefined;
         const all_required = required_checks.length === 0;
@@ -861,13 +881,13 @@ function get_ci_status(octo, pr, required_checks) {
 }
 function parse_state(state) {
     switch (state) {
-        case "failure": {
+        case 'failure': {
             return CIStatus.Failure;
         }
-        case "pending": {
+        case 'pending': {
             return CIStatus.Pending;
         }
-        case "success": {
+        case 'success': {
             return CIStatus.Success;
         }
         default: {
@@ -884,9 +904,9 @@ function sync_pr_labels(octo, pr, to_remove, to_add) {
         const current_labels = yield octo.issues.listLabelsOnIssue({
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,
-            issue_number: pr.number,
+            issue_number: pr.number
         });
-        const labels = current_labels.data.map((label) => label.name);
+        const labels = current_labels.data.map(label => label.name);
         var triage_labels = [];
         var changed = false;
         for (const label of labels) {
@@ -912,7 +932,7 @@ function sync_pr_labels(octo, pr, to_remove, to_add) {
             owner: pr.base.repo.owner.login,
             repo: pr.base.repo.name,
             issue_number: pr.number,
-            labels: triage_labels,
+            labels: triage_labels
         });
     });
 }
@@ -2058,13 +2078,14 @@ function run() {
                 ready_for_merge_labels: core.getInput('readyForMerge').split(','),
                 waiting_for_author_labels: core.getInput('waitingForAuthor').split(','),
                 requires_description: to_bool(core.getInput('requireDescription')),
+                requires_review: to_bool(core.getInput('requireReview')),
                 ci_passed_labels: core.getInput('ciPassed').split(','),
-                required_checks: core.getInput('requiredChecks').split(','),
+                required_checks: core.getInput('requiredChecks').split(',')
             };
-            const token = core.getInput("GITHUB_TOKEN");
+            const token = core.getInput('GITHUB_TOKEN');
             const octokit = new rest_1.Octokit({
                 auth: `token ${token}`,
-                userAgent: "pr-label action"
+                userAgent: 'pr-label action'
             });
             yield process_1.process_event(ctx, octokit, cfg);
         }
@@ -26596,7 +26617,7 @@ exports.requestLog = requestLog;
 /***/ 919:
 /***/ (function(module) {
 
-module.exports = {"_from":"@octokit/rest@^16.43.1","_id":"@octokit/rest@16.43.1","_inBundle":false,"_integrity":"sha512-gfFKwRT/wFxq5qlNjnW2dh+qh74XgTQ2B179UX5K1HYCluioWj8Ndbgqw2PVqa1NnVJkGHp2ovMpVn/DImlmkw==","_location":"/@actions/github/@octokit/rest","_phantomChildren":{},"_requested":{"type":"range","registry":true,"raw":"@octokit/rest@^16.43.1","name":"@octokit/rest","escapedName":"@octokit%2frest","scope":"@octokit","rawSpec":"^16.43.1","saveSpec":null,"fetchSpec":"^16.43.1"},"_requiredBy":["/@actions/github"],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.1.tgz","_shasum":"3b11e7d1b1ac2bbeeb23b08a17df0b20947eda6b","_spec":"@octokit/rest@^16.43.1","_where":"/home/jake/code/review-action/node_modules/@actions/github","author":{"name":"Gregor Martynus","url":"https://github.com/gr2m"},"bugs":{"url":"https://github.com/octokit/rest.js/issues"},"bundleDependencies":false,"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"deprecated":false,"description":"GitHub REST API client for Node.js","devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"files":["index.js","index.d.ts","lib","plugins"],"homepage":"https://github.com/octokit/rest.js#readme","keywords":["octokit","github","rest","api-client"],"license":"MIT","name":"@octokit/rest","nyc":{"ignore":["test"]},"publishConfig":{"access":"public"},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"repository":{"type":"git","url":"git+https://github.com/octokit/rest.js.git"},"scripts":{"build":"npm-run-all build:*","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","build:ts":"npm run -s update-endpoints:typescript","coverage":"nyc report --reporter=html && open coverage/index.html","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","prebuild:browser":"mkdirp dist/","pretest":"npm run -s lint","prevalidate:ts":"npm run -s build:ts","start-fixtures-server":"octokit-fixtures-server","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts"},"types":"index.d.ts","version":"16.43.1"};
+module.exports = {"_args":[["@octokit/rest@16.43.1","C:\\git-repos\\review-action"]],"_from":"@octokit/rest@16.43.1","_id":"@octokit/rest@16.43.1","_inBundle":false,"_integrity":"sha512-gfFKwRT/wFxq5qlNjnW2dh+qh74XgTQ2B179UX5K1HYCluioWj8Ndbgqw2PVqa1NnVJkGHp2ovMpVn/DImlmkw==","_location":"/@actions/github/@octokit/rest","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"@octokit/rest@16.43.1","name":"@octokit/rest","escapedName":"@octokit%2frest","scope":"@octokit","rawSpec":"16.43.1","saveSpec":null,"fetchSpec":"16.43.1"},"_requiredBy":["/@actions/github"],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.1.tgz","_spec":"16.43.1","_where":"C:\\git-repos\\review-action","author":{"name":"Gregor Martynus","url":"https://github.com/gr2m"},"bugs":{"url":"https://github.com/octokit/rest.js/issues"},"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"description":"GitHub REST API client for Node.js","devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"files":["index.js","index.d.ts","lib","plugins"],"homepage":"https://github.com/octokit/rest.js#readme","keywords":["octokit","github","rest","api-client"],"license":"MIT","name":"@octokit/rest","nyc":{"ignore":["test"]},"publishConfig":{"access":"public"},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"repository":{"type":"git","url":"git+https://github.com/octokit/rest.js.git"},"scripts":{"build":"npm-run-all build:*","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","build:ts":"npm run -s update-endpoints:typescript","coverage":"nyc report --reporter=html && open coverage/index.html","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","prebuild:browser":"mkdirp dist/","pretest":"npm run -s lint","prevalidate:ts":"npm run -s build:ts","start-fixtures-server":"octokit-fixtures-server","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts"},"types":"index.d.ts","version":"16.43.1"};
 
 /***/ }),
 

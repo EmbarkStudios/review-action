@@ -92,8 +92,6 @@ export async function process_event(
     var triage_actions: TriageAction[] = [];
 
     for (const pr of pull_requests) {
-        core.debug(`Test test debug test`);
-
         if (pr.draft === true) {
             core.info(`Ignoring draft PR#${pr.number}`);
             triage_actions.push({
@@ -165,7 +163,6 @@ export async function process_event(
                 const no_changes_requested = reviewers.every((review) => review.state != "CHANGES_REQUESTED");
                 core.debug(`Are there changes requested? ${no_changes_requested}`);
 
-
                 if (all_approved) {
                     core.info(`All reviews are approved, marking PR as ready to merge`);
                     todo = Todo.ReadyForMerge;
@@ -179,7 +176,6 @@ export async function process_event(
                 }
             } else {
                 // If there are no reviews and we allow merges without them, mark as ready for merge
-                core.debug(`RequiresReview is set to ${cfg.requires_review}`);
                 if (cfg.requires_review) {
                     core.debug(`There are no reviews but we require them, marking as waiting on review`);
                     todo = Todo.WaitingOnReview;
