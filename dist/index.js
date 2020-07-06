@@ -806,8 +806,8 @@ function process_event(ctx, octo, cfg) {
                         todo = Todo.WaitingOnReview;
                     }
                     if (no_changes_requested && !cfg.requires_review) {
-                        core.debug(`There are no reviews and we don't require them, marking PR as ready for merge`);
-                        todo = Todo.ReadyForMerge;
+                        core.debug(`No changes requested.`);
+                        //todo = Todo.ReadyForMerge;
                     }
                 }
                 else {
