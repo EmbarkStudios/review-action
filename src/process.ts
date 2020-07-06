@@ -161,7 +161,6 @@ export async function process_event(
                 const all_approved = reviewers.every((review) => review.state == "APPROVED");
 
                 const no_changes_requested = reviewers.every((review) => review.state != "CHANGES_REQUESTED");
-                core.debug(`Are there changes requested? ${no_changes_requested}`);
 
                 if (all_approved) {
                     core.info(`All reviews are approved, marking PR as ready to merge`);
@@ -171,16 +170,16 @@ export async function process_event(
                 }
 
                 if (no_changes_requested && !cfg.requires_review) {
-                    core.debug(`No changes requested, and we don't require reviews, marking PR as ready to merge`);
+                    core.debug(`There are no reviews and we don't require them, marking PR as ready for merge`);
                     todo = Todo.ReadyForMerge;
                 }
             } else {
                 // If there are no reviews and we allow merges without them, mark as ready for merge
                 if (cfg.requires_review) {
-                    core.debug(`There are no reviews but we require them, marking as waiting on review`);
+                    core.debug(`There are no reviews but we require them, marking PR as waiting on review`);
                     todo = Todo.WaitingOnReview;
                 } else {
-                    core.debug(`There are no reviews and we don't require them, marking ready for merge`);
+                    core.debug(`There are no reviews and we don't require them, marking PR as ready for merge`);
                     todo = Todo.ReadyForMerge;
                 }
             }
