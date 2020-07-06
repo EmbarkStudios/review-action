@@ -180,7 +180,7 @@ export async function process_event(
                     core.debug(`There are no reviews but we require them, marking as waiting on review`);
                     todo = Todo.WaitingOnReview;
                 } else {
-                    core.debug(`There are no reviews and we require them, marking ready for merge`);
+                    core.debug(`There are no reviews and we don't require them, marking ready for merge`);
                     todo = Todo.ReadyForMerge;
                 }
             }
