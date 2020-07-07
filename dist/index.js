@@ -797,17 +797,12 @@ function process_event(ctx, octo, cfg) {
                         }
                     }
                     const all_approved = reviewers.every(review => review.state == 'APPROVED');
-                    const no_changes_requested = reviewers.every(review => review.state != 'CHANGES_REQUESTED');
                     if (all_approved) {
                         core.info(`All reviews are approved, marking PR as ready to merge`);
                         todo = Todo.ReadyForMerge;
                     }
                     else {
                         todo = Todo.WaitingOnReview;
-                    }
-                    if (no_changes_requested && !cfg.requires_review) {
-                        core.debug(`No changes requested.`);
-                        //todo = Todo.ReadyForMerge;
                     }
                 }
                 else {
